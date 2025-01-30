@@ -10,53 +10,17 @@ cloudwatch = boto3.client('cloudwatch')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# Define file patterns and their SLOs
-file_slo_mapping = {
-    # Monthly files
-    "BCL_OPR_RISK_SMA_BCAR.*.dat.pgp": {
-        "slo_days": 8,  # 8th business day
-        "slo_time": time(17, 0)  # 5:00 PM
-    },
-    "ANOTHER_FILE_PATTERN.*.dat.pgp": {
-        "slo_days": 5,  # 5th business day
-        "slo_time": time(12, 0)  # 12:00 PM
-    },
-    "YET_ANOTHER_PATTERN.*.dat.pgp": {
-        "slo_days": 3,  # 3rd business day
-        "slo_time": time(9, 0)  # 9:00 AM
-    },
-    # Daily files
-    "L1_PROFIT_CENTER_HIERARCHY_EXPLOSION_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    },
-    "L1_PROFIT_CENTER_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    },
-    "L1_PROFIT_CENTER_CATEGORY_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    },
-    "L1_NATURAL_GL_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    },
-    "L1_MDM_US_GAAP_GL_CATEGORY_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    },
-    "L1_US_GAAP_GL_CATEGORY_EXPLOSION_*.xlsx": {
-        "slo_days": 0,  # Same day
-        "slo_time": time(10, 30)  # 10:30 AM EST
-    }
-}
-
-def load_holidays_from_s3(bucket_name, key):
-    # Load holiday data from an S3 bucket.
+def load_json_from_s3(bucket_name, key):
+    # Load JSON data from an S3 bucket.
     response = s3.get_object(Bucket=bucket_name, Key=key)
-    holidays_data = json.loads(response['Body'].read().decode('utf-8'))
-    return holidays_data
+    data = json.loads(response['Body'].read().decode('utf-8'))
+    return data
+
+def parse_slo_mapping(slo_mapping_data):
+    # Parse the SLO mapping data and convert slo_time to time objects.
+    for pattern, slo in slo_mapping_data.items():
+        slo['slo_time'] = datetime.strptime(slo['slo_time'], '%H:%M').time()
+    return slo_mapping_data
 
 def is_holiday(date, holidays):
     # Check if a date is a holiday.
@@ -122,7 +86,7 @@ def put_cloudwatch_metric(metric_name, value, reason=None):
         MetricData=[metric_data]
     )
 
-def check_monthly_files(holidays, bucket_name, sns_topic_arn):
+def check_monthly_files(holidays, bucket_name, sns_topic_arn, file_slo_mapping):
     # Check for missing monthly files based on SLOs, using specified holidays.
     today = datetime.now()
     year = today.year
@@ -176,7 +140,7 @@ def check_monthly_files(holidays, bucket_name, sns_topic_arn):
                         # Other S3 error
                         logger.info(f"Error checking file {expected_file_name}: {e}")
 
-def check_daily_files(holidays, bucket_name, sns_topic_arn):
+def check_daily_files(holidays, bucket_name, sns_topic_arn, file_slo_mapping):
     # Check for missing daily files based on SLOs, using specified holidays.
     # Get the current date and time in EST
     now = get_est_time()
@@ -239,7 +203,11 @@ def lambda_handler(event, context):
     bucket_name = event['bucket_name']
     sns_topic_arn = event['sns_topic_arn']
     holidays_file_key = event['holidays_file_key']
-    holidays_data = load_holidays_from_s3(bucket_name, holidays_file_key)
+    slo_mapping_file_key = event['slo_mapping_file_key']
+    
+    holidays_data = load_json_from_s3(bucket_name, holidays_file_key)
+    slo_mapping_data = load_json_from_s3(bucket_name, slo_mapping_file_key)
+    file_slo_mapping = parse_slo_mapping(slo_mapping_data)
     
     # Switch based on if we want to check for Canadian or US holidays
     use_canadian_holidays = event.get('useCanadianHolidays', False)
@@ -251,8 +219,8 @@ def lambda_handler(event, context):
         holidays = [datetime.strptime(date, '%Y-%m-%d') for date in holidays_data['us_public_holidays'].get(str(year), [])]
     
     # Use these holidays for checking business days
-    check_monthly_files(holidays, bucket_name, sns_topic_arn)
-    check_daily_files(holidays, bucket_name, sns_topic_arn)
+    check_monthly_files(holidays, bucket_name, sns_topic_arn, file_slo_mapping)
+    check_daily_files(holidays, bucket_name, sns_topic_arn, file_slo_mapping)
 
     return {
         'statusCode': 200,

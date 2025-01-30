@@ -1,0 +1,38 @@
+{
+    "BCL_OPR_RISK_SMA_BCAR.*.dat.pgp": {
+        "slo_days": 8,
+        "slo_time": "17:00"
+    },
+    "ANOTHER_FILE_PATTERN.*.dat.pgp": {
+        "slo_days": 5,
+        "slo_time": "12:00"
+    },
+    "YET_ANOTHER_PATTERN.*.dat.pgp": {
+        "slo_days": 3,
+        "slo_time": "09:00"
+    },
+    "L1_PROFIT_CENTER_HIERARCHY_EXPLOSION_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    },
+    "L1_PROFIT_CENTER_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    },
+    "L1_PROFIT_CENTER_CATEGORY_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    },
+    "L1_NATURAL_GL_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    },
+    "L1_MDM_US_GAAP_GL_CATEGORY_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    },
+    "L1_US_GAAP_GL_CATEGORY_EXPLOSION_*.xlsx": {
+        "slo_days": 0,
+        "slo_time": "10:30"
+    }
+}
