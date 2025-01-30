@@ -1,13 +1,11 @@
 import boto3
 from datetime import datetime, timedelta, time
-import re
+import json
 import logging
 
 s3 = boto3.client('s3')
 sns = boto3.client('sns')
 cloudwatch = boto3.client('cloudwatch')
-sns_topic_arn = 'arn:aws:sns:ca-central-1:507525864454:aatesttopic' 
-bucket_name = 'myaatest01'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -54,52 +52,22 @@ file_slo_mapping = {
     }
 }
 
-# Define US public holidays for the relevant year(s)
-us_public_holidays = {
-    2025: [
-        datetime(2025, 1, 1),   # New Year's Day
-        datetime(2025, 1, 20),  # Martin Luther King Jr. Day
-        datetime(2025, 2, 17),  # Presidents' Day
-        datetime(2025, 5, 26),  # Memorial Day
-        datetime(2025, 6, 19),  # Juneteenth
-        datetime(2025, 7, 4),   # Independence Day
-        datetime(2025, 9, 1),   # Labor Day
-        datetime(2025, 10, 13), # Columbus Day
-        datetime(2025, 11, 11), # Veterans Day
-        datetime(2025, 11, 27), # Thanksgiving Day
-        datetime(2025, 12, 25), # Christmas Day
-    ],
-    # Add more years as needed
-}
-
-# Define Canadian holidays for 2025
-ca_public_holidays = {
-    2025: [
-        datetime(2025, 1, 1),   # New Year's Day
-        datetime(2025, 1, 2),   # New Year's Day Observed in Quebec (since Jan 1 is a Wednesday)
-        datetime(2025, 2, 17),  # Family Day (example for some provinces, adjust as necessary)
-        datetime(2025, 4, 18),  # Good Friday
-        datetime(2025, 5, 19),  # Victoria Day
-        datetime(2025, 7, 1),   # Canada Day
-        datetime(2025, 8, 4),   # Civic Holiday
-        datetime(2025, 9, 1),   # Labour Day
-        datetime(2025, 9, 30),  # National Day for Truth and Reconciliation
-        datetime(2025, 10, 13), # Thanksgiving
-        datetime(2025, 12, 25), # Christmas Day
-        datetime(2025, 12, 26), # Boxing Day
-    ]
-}
+def load_holidays_from_s3(bucket_name, key):
+    # Load holiday data from an S3 bucket.
+    response = s3.get_object(Bucket=bucket_name, Key=key)
+    holidays_data = json.loads(response['Body'].read().decode('utf-8'))
+    return holidays_data
 
 def is_holiday(date, holidays):
-    """Check if a date is a holiday."""
+    # Check if a date is a holiday.
     return date in holidays
 
 def is_business_day(date, holidays):
-    """Check if a date is a business day (Monday to Friday and not a holiday)."""
+    # Check if a date is a business day (Monday to Friday and not a holiday).
     return date.weekday() < 5 and not is_holiday(date, holidays)
 
 def get_nth_business_day(year, month, n, holidays):
-    """Calculate the nth business day of the month, excluding weekends and holidays."""
+    # Calculate the nth business day of the month, excluding weekends and holidays.
     date = datetime(year, month, 1)  # Start from the first day of the month
     business_days = 0
     while business_days < n:
@@ -110,22 +78,22 @@ def get_nth_business_day(year, month, n, holidays):
     return date
 
 def get_expected_arrival_time(date, slo_time):
-    """Get the expected arrival time for a given date."""
+    # Get the expected arrival time for a given date.
     return datetime.combine(date, slo_time)
 
 def get_est_time():
-    """Get the current time in EST (UTC-5)."""
+    # Get the current time in EST (UTC-5).
     utc_now = datetime.utcnow()
     est_offset = timedelta(hours=-5)  # EST is UTC-5
     return utc_now + est_offset
 
-def send_alert(message):
-    """Send an alert via SNS."""
+def send_alert(message, sns_topic_arn):
+    # Send an alert via SNS.
     #sns.publish(TopicArn=sns_topic_arn, Message=message, Subject="File Arrival Alert")
     return
 
 def add_slo_status_tag(bucket_name, key, status):
-    """Add an SLO status tag to the specified S3 object."""
+    # Add an SLO status tag to the specified S3 object.
     s3.put_object_tagging(
         Bucket=bucket_name,
         Key=key,
@@ -140,7 +108,7 @@ def add_slo_status_tag(bucket_name, key, status):
     )
 
 def put_cloudwatch_metric(metric_name, value, reason=None):
-    """Put a custom metric to CloudWatch."""
+    # Put a custom metric to CloudWatch.
     metric_data = {
         'MetricName': metric_name,
         'Value': value,
@@ -154,8 +122,8 @@ def put_cloudwatch_metric(metric_name, value, reason=None):
         MetricData=[metric_data]
     )
 
-def check_monthly_files(holidays):
-    """Check for missing monthly files based on SLOs, using specified holidays."""
+def check_monthly_files(holidays, bucket_name, sns_topic_arn):
+    # Check for missing monthly files based on SLOs, using specified holidays.
     today = datetime.now()
     year = today.year
     month = today.month
@@ -190,7 +158,7 @@ def check_monthly_files(holidays):
                             f"SLO not met. Expected by: {expected_arrival_time}, Arrived on: {last_modified}"
                         )
                         logger.info(alert_message)
-                        send_alert(alert_message)
+                        send_alert(alert_message, sns_topic_arn)
                         add_slo_status_tag(bucket_name, s3_key, 'not met')
                         put_cloudwatch_metric('MonthlySLONotMet', 1, 'LateArrival')
 
@@ -202,14 +170,14 @@ def check_monthly_files(holidays):
                             f"SLO not met. Expected by: {expected_arrival_time}"
                         )
                         logger.info(alert_message)
-                        send_alert(alert_message)
+                        send_alert(alert_message, sns_topic_arn)
                         put_cloudwatch_metric('MonthlySLONotMet', 1, 'FileNotFound')
                     else:
                         # Other S3 error
                         logger.info(f"Error checking file {expected_file_name}: {e}")
 
-def check_daily_files(holidays):
-    """Check for missing daily files based on SLOs, using specified holidays."""
+def check_daily_files(holidays, bucket_name, sns_topic_arn):
+    # Check for missing daily files based on SLOs, using specified holidays.
     # Get the current date and time in EST
     now = get_est_time()
     today = now.date()
@@ -248,7 +216,7 @@ def check_daily_files(holidays):
                             f"SLO not met. Expected by: {expected_arrival_time}, Arrived on: {last_modified}"
                         )
                         logger.info(alert_message)
-                        send_alert(alert_message)
+                        send_alert(alert_message, sns_topic_arn)
                         add_slo_status_tag(bucket_name, s3_key, 'not met')
                         put_cloudwatch_metric('DailySLONotMet', 1, 'LateArrival')
 
@@ -260,25 +228,31 @@ def check_daily_files(holidays):
                             f"SLO not met. Expected by: {expected_arrival_time}"
                         )
                         logger.info(alert_message)
-                        send_alert(alert_message)
+                        send_alert(alert_message, sns_topic_arn)
                         put_cloudwatch_metric('DailySLONotMet', 1, 'FileNotFound')
                     else:
                         # Other S3 error
                         logger.info(f"Error checking file {expected_file_name}: {e}")
 
 def lambda_handler(event, context):
+    # Load holidays from S3
+    bucket_name = event['bucket_name']
+    sns_topic_arn = event['sns_topic_arn']
+    holidays_file_key = event['holidays_file_key']
+    holidays_data = load_holidays_from_s3(bucket_name, holidays_file_key)
+    
     # Switch based on if we want to check for Canadian or US holidays
     use_canadian_holidays = event.get('useCanadianHolidays', False)
     year = datetime.now().year
     
     if use_canadian_holidays:
-        holidays = ca_public_holidays.get(year, [])
+        holidays = [datetime.strptime(date, '%Y-%m-%d') for date in holidays_data['ca_public_holidays'].get(str(year), [])]
     else:
-        holidays = us_public_holidays.get(year, [])
+        holidays = [datetime.strptime(date, '%Y-%m-%d') for date in holidays_data['us_public_holidays'].get(str(year), [])]
     
     # Use these holidays for checking business days
-    check_monthly_files(holidays)
-    check_daily_files(holidays)
+    check_monthly_files(holidays, bucket_name, sns_topic_arn)
+    check_daily_files(holidays, bucket_name, sns_topic_arn)
 
     return {
         'statusCode': 200,
