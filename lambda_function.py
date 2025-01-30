@@ -123,16 +123,16 @@ def send_alert(message):
     #sns.publish(TopicArn=sns_topic_arn, Message=message, Subject="File Arrival Alert")
     return
 
-def add_processed_tag(bucket_name, key):
-    """Add a 'processed' tag to the specified S3 object."""
+def add_slo_status_tag(bucket_name, key, status):
+    """Add an SLO status tag to the specified S3 object."""
     s3.put_object_tagging(
         Bucket=bucket_name,
         Key=key,
         Tagging={
             'TagSet': [
                 {
-                    'Key': 'processed',
-                    'Value': 'true'
+                    'Key': 'slo_status',
+                    'Value': status
                 }
             ]
         }
@@ -166,6 +166,7 @@ def check_monthly_files(holidays):
 
                     if last_modified <= expected_arrival_time:
                         logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
+                        add_slo_status_tag(bucket_name, s3_key, 'met')
                     else:
                         alert_message = (
                             f"File {expected_file_name} exists but arrived late. "
@@ -173,8 +174,8 @@ def check_monthly_files(holidays):
                         )
                         logger.info(alert_message)
                         send_alert(alert_message)
+                        add_slo_status_tag(bucket_name, s3_key, 'not met')
 
-                    add_processed_tag(bucket_name, s3_key)
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
                         # File not found
@@ -220,6 +221,7 @@ def check_daily_files(holidays):
 
                     if last_modified <= expected_arrival_time:
                         logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
+                        add_slo_status_tag(bucket_name, s3_key, 'met')
                     else:
                         alert_message = (
                             f"File {expected_file_name} exists but arrived late. "
@@ -227,8 +229,8 @@ def check_daily_files(holidays):
                         )
                         logger.info(alert_message)
                         send_alert(alert_message)
+                        add_slo_status_tag(bucket_name, s3_key, 'not met')
 
-                    add_processed_tag(bucket_name, s3_key)
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
                         # File not found
