@@ -1,0 +1,20 @@
+L1_PROFIT_CENTER_yyyymmdd.xlsx
+L1_PROFIT_CENTER_CATEGORY_yyyymmdd.xlsx
+L1_NATURAL_GL_yyyymmdd.xlsx
+L1_MDM_US_GAAP_GL_CATEGORY_yyyymmdd.xlsx
+L1_US_GAAP_GL_CATEGORY_EXPLOSION_yyyymmdd.xlsx
+
+CANADIAN_HOLIDAYS_2025 = [
+    datetime(2025, 1, 1),   # New Year's Day
+    datetime(2025, 1, 2),   # New Year's Day Observed in Quebec (since Jan 1 is a Wednesday)
+    datetime(2025, 2, 17),  # Family Day (example for some provinces, adjust as necessary)
+    datetime(2025, 4, 18),  # Good Friday
+    datetime(2025, 5, 19),  # Victoria Day
+    datetime(2025, 7, 1),   # Canada Day
+    datetime(2025, 8, 4),   # Civic Holiday
+    datetime(2025, 9, 1),   # Labour Day
+    datetime(2025, 9, 30),  # National Day for Truth and Reconciliation
+    datetime(2025, 10, 13), # Thanksgiving
+    datetime(2025, 12, 25), # Christmas Day
+    datetime(2025, 12, 26), # Boxing Day
+]
