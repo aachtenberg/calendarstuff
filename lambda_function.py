@@ -1,11 +1,15 @@
 import boto3
 from datetime import datetime, timedelta, time
 import re
+import logging
 
 s3 = boto3.client('s3')
 sns = boto3.client('sns')
 sns_topic_arn = 'arn:aws:sns:ca-central-1:507525864454:aatesttopic' 
 bucket_name = 'myaatest01'
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Define file patterns and their SLOs
 file_slo_mapping = {
@@ -68,7 +72,7 @@ us_public_holidays = {
 }
 
 # Define Canadian holidays for 2025
-canadian_holidays_2025 = {
+ca_public_holidays = {
     2025: [
         datetime(2025, 1, 1),   # New Year's Day
         datetime(2025, 1, 2),   # New Year's Day Observed in Quebec (since Jan 1 is a Wednesday)
@@ -119,6 +123,21 @@ def send_alert(message):
     #sns.publish(TopicArn=sns_topic_arn, Message=message, Subject="File Arrival Alert")
     return
 
+def add_processed_tag(bucket_name, key):
+    """Add a 'processed' tag to the specified S3 object."""
+    s3.put_object_tagging(
+        Bucket=bucket_name,
+        Key=key,
+        Tagging={
+            'TagSet': [
+                {
+                    'Key': 'processed',
+                    'Value': 'true'
+                }
+            ]
+        }
+    )
+
 def check_monthly_files(holidays):
     """Check for missing monthly files based on SLOs, using specified holidays."""
     today = datetime.now()
@@ -142,20 +161,32 @@ def check_monthly_files(holidays):
                 s3_key = f"archive/{expected_file_name}"
                 try:
                     # Check if the file exists in the S3 bucket
-                    s3.head_object(Bucket=bucket_name, Key=s3_key)
-                    print(f"File {s3_key} exists. SLO met.")
+                    file_metadata = s3.head_object(Bucket=bucket_name, Key=s3_key)
+                    last_modified = file_metadata['LastModified'].replace(tzinfo=None)
+
+                    if last_modified <= expected_arrival_time:
+                        logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
+                    else:
+                        alert_message = (
+                            f"File {expected_file_name} exists but arrived late. "
+                            f"SLO not met. Expected by: {expected_arrival_time}, Arrived on: {last_modified}"
+                        )
+                        logger.info(alert_message)
+                        send_alert(alert_message)
+
+                    add_processed_tag(bucket_name, s3_key)
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
                         # File not found
                         alert_message = (
                             f"File {expected_file_name} is missing in the archive folder. "
-                            f"Expected by: {expected_arrival_time}"
+                            f"SLO not met. Expected by: {expected_arrival_time}"
                         )
-                        print(alert_message)
+                        logger.info(alert_message)
                         send_alert(alert_message)
                     else:
                         # Other S3 error
-                        print(f"Error checking file {s3_key}: {e}")
+                        logger.info(f"Error checking file {expected_file_name}: {e}")
 
 def check_daily_files(holidays):
     """Check for missing daily files based on SLOs, using specified holidays."""
@@ -165,7 +196,7 @@ def check_daily_files(holidays):
 
     # Check if today is a business day
     if not is_business_day(today, holidays):
-        print(f"Today ({today}) is not a business day. Skipping daily file check.")
+        logger.info(f"Today ({today}) is not a business day. Skipping daily file check.")
         return
 
     # Process daily files
@@ -184,20 +215,32 @@ def check_daily_files(holidays):
                 s3_key = f"archive/{expected_file_name}"
                 try:
                     # Check if the file exists in the S3 bucket
-                    s3.head_object(Bucket=bucket_name, Key=s3_key)
-                    print(f"File {s3_key} exists. SLO met.")
+                    file_metadata = s3.head_object(Bucket=bucket_name, Key=s3_key)
+                    last_modified = file_metadata['LastModified'].replace(tzinfo=None)
+
+                    if last_modified <= expected_arrival_time:
+                        logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
+                    else:
+                        alert_message = (
+                            f"File {expected_file_name} exists but arrived late. "
+                            f"SLO not met. Expected by: {expected_arrival_time}, Arrived on: {last_modified}"
+                        )
+                        logger.info(alert_message)
+                        send_alert(alert_message)
+
+                    add_processed_tag(bucket_name, s3_key)
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
                         # File not found
                         alert_message = (
                             f"File {expected_file_name} is missing in the archive folder. "
-                            f"Expected by: {expected_arrival_time}"
+                            f"SLO not met. Expected by: {expected_arrival_time}"
                         )
-                        print(alert_message)
+                        logger.info(alert_message)
                         send_alert(alert_message)
                     else:
                         # Other S3 error
-                        print(f"Error checking file {s3_key}: {e}")
+                        logger.info(f"Error checking file {expected_file_name}: {e}")
 
 def lambda_handler(event, context):
     # Switch based on if we want to check for Canadian or US holidays
@@ -205,7 +248,7 @@ def lambda_handler(event, context):
     year = datetime.now().year
     
     if use_canadian_holidays:
-        holidays = canadian_holidays_2025.get(year, [])
+        holidays = ca_public_holidays.get(year, [])
     else:
         holidays = us_public_holidays.get(year, [])
     
