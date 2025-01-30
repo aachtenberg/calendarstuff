@@ -5,6 +5,7 @@ import logging
 
 s3 = boto3.client('s3')
 sns = boto3.client('sns')
+cloudwatch = boto3.client('cloudwatch')
 sns_topic_arn = 'arn:aws:sns:ca-central-1:507525864454:aatesttopic' 
 bucket_name = 'myaatest01'
 
@@ -138,6 +139,21 @@ def add_slo_status_tag(bucket_name, key, status):
         }
     )
 
+def put_cloudwatch_metric(metric_name, value, reason=None):
+    """Put a custom metric to CloudWatch."""
+    metric_data = {
+        'MetricName': metric_name,
+        'Value': value,
+        'Unit': 'Count'
+    }
+    if reason:
+        metric_data['Dimensions'] = [{'Name': 'Reason', 'Value': reason}]
+    
+    cloudwatch.put_metric_data(
+        Namespace='FileSLO-Metrics',
+        MetricData=[metric_data]
+    )
+
 def check_monthly_files(holidays):
     """Check for missing monthly files based on SLOs, using specified holidays."""
     today = datetime.now()
@@ -167,6 +183,7 @@ def check_monthly_files(holidays):
                     if last_modified <= expected_arrival_time:
                         logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
                         add_slo_status_tag(bucket_name, s3_key, 'met')
+                        put_cloudwatch_metric('MonthlySLOMet', 1)
                     else:
                         alert_message = (
                             f"File {expected_file_name} exists but arrived late. "
@@ -175,6 +192,7 @@ def check_monthly_files(holidays):
                         logger.info(alert_message)
                         send_alert(alert_message)
                         add_slo_status_tag(bucket_name, s3_key, 'not met')
+                        put_cloudwatch_metric('MonthlySLONotMet', 1, 'LateArrival')
 
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
@@ -185,6 +203,7 @@ def check_monthly_files(holidays):
                         )
                         logger.info(alert_message)
                         send_alert(alert_message)
+                        put_cloudwatch_metric('MonthlySLONotMet', 1, 'FileNotFound')
                     else:
                         # Other S3 error
                         logger.info(f"Error checking file {expected_file_name}: {e}")
@@ -222,6 +241,7 @@ def check_daily_files(holidays):
                     if last_modified <= expected_arrival_time:
                         logger.info(f"File {expected_file_name} exists and arrived on time. SLO met.")
                         add_slo_status_tag(bucket_name, s3_key, 'met')
+                        put_cloudwatch_metric('DailySLOMet', 1)
                     else:
                         alert_message = (
                             f"File {expected_file_name} exists but arrived late. "
@@ -230,6 +250,7 @@ def check_daily_files(holidays):
                         logger.info(alert_message)
                         send_alert(alert_message)
                         add_slo_status_tag(bucket_name, s3_key, 'not met')
+                        put_cloudwatch_metric('DailySLONotMet', 1, 'LateArrival')
 
                 except s3.exceptions.ClientError as e:
                     if e.response['Error']['Code'] == '404':
@@ -240,6 +261,7 @@ def check_daily_files(holidays):
                         )
                         logger.info(alert_message)
                         send_alert(alert_message)
+                        put_cloudwatch_metric('DailySLONotMet', 1, 'FileNotFound')
                     else:
                         # Other S3 error
                         logger.info(f"Error checking file {expected_file_name}: {e}")
