@@ -40,7 +40,7 @@ def get_nth_business_day(year, month, n, holidays):
         if business_days < n:
             date += timedelta(days=1)  # Move to the next day
     return date
-
+  
 def get_expected_arrival_time(date, slo_time):
     # Get the expected arrival time for a given date.
     return datetime.combine(date, slo_time)
